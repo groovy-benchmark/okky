@@ -1,0 +1,268 @@
+package net.okjsp
+
+import org.hibernate.type.StandardBasicTypes
+import org.springframework.web.multipart.MultipartFile
+
+import static org.springframework.http.HttpStatus.*
+import grails.transaction.Transactional
+
+@Transactional(readOnly = true)
+class BannerController {
+
+    UserService userService
+    FileService fileService
+    BannerService bannerService
+
+    private static final List<String> BANNER_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif']
+
+    private boolean isImageName(String fileName) {
+        def parts = fileName.toLowerCase().tokenize('.')
+        parts.size() >= 2 && parts[1] in BANNER_IMAGE_EXTENSIONS
+    }
+
+    static allowedMethods = [save: "POST", saveChecked: "POST", update: ["PUT","POST"], updateChecked: ["PUT","POST"], delete: "DELETE"]
+
+    @Transactional
+    def stats(Banner banner) {
+
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        String ip = userService.getRealIp(request)
+
+        def bannerClick = BannerClick.findOrCreateWhere(banner: banner, ip: ip)
+
+        bannerClick.clickCount++
+        bannerClick.dateString = new Date().format("yyyy-MM-dd")
+        bannerClick.save(flush: true)
+
+        redirect url: banner.url
+    }
+
+    def index(Integer max) {
+        params.max = Math.min(max ?: 10, 100)
+        params.order = params.order ?: 'desc'
+        params.sort = params.sort ?: 'id'
+
+        def bannerQuery = Banner.where {
+            if(params.visible != null && params.visible != '')
+                visible == (params.visible == "true")
+        }
+
+        respond bannerQuery.list(params), model:[bannerCount: bannerQuery.count()]
+    }
+
+    def show(Banner banner) {
+        respond banner
+    }
+
+    def create() {
+        respond new Banner(params)
+    }
+
+    @Transactional
+    def save(Banner banner) {
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        if (banner.hasErrors()) {
+            respond banner.errors, view:'create'
+            return
+        }
+
+
+        MultipartFile imageFile = request.getFile("imageFile")
+
+        if(imageFile && !imageFile.empty && (imageFile.originalFilename =~ /(?i)\.(png|jpe?g|gif)/)) {
+            def ext = imageFile.originalFilename.substring(imageFile.originalFilename.lastIndexOf('.'));
+            def mil = System.currentTimeMillis()
+            imageFile.transferTo(new java.io.File("${grailsApplication.config.grails.filePath}/banner/", "${mil}${ext}")) // SINK: PLANTED-GR-HR-194
+
+            banner.image = "${grailsApplication.config.grails.fileURL}/banner/${mil}${ext}"
+        }
+
+        bannerService.save(banner)
+
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.created.message', args: [message(code: 'banner.label', default: 'Banner'), banner.id])
+                redirect banner
+            }
+            '*' { respond banner, [status: CREATED] }
+        }
+    }
+
+    @Transactional
+    def saveChecked(Banner banner) {
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        if (banner.hasErrors()) {
+            respond banner.errors, view:'create'
+            return
+        }
+
+        MultipartFile imageFile = request.getFile("imageFile")
+
+        if(imageFile && !imageFile.empty) {
+            def stored = fileService.saveBannerImage(imageFile)
+
+            if(stored) {
+                banner.image = "${grailsApplication.config.grails.fileURL}/banner/${stored}"
+            }
+        }
+
+        bannerService.save(banner)
+
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.created.message', args: [message(code: 'banner.label', default: 'Banner'), banner.id])
+                redirect banner
+            }
+            '*' { respond banner, [status: CREATED] }
+        }
+    }
+
+    def edit(Banner banner) {
+        respond banner
+    }
+
+    @Transactional
+    def update(Banner banner) {
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        if (banner.hasErrors()) {
+            respond banner.errors, view:'edit'
+            return
+        }
+
+        MultipartFile imageFile = request.getFile("imageFile")
+
+        if(imageFile && !imageFile.empty && isImageName(imageFile.originalFilename)) {
+            def ext = imageFile.originalFilename.substring(imageFile.originalFilename.lastIndexOf('.'));
+            def mil = System.currentTimeMillis()
+            imageFile.transferTo(new java.io.File("${grailsApplication.config.grails.filePath}/banner/", "${mil}${ext}")) // SINK: PLANTED-GR-HR-195
+
+            banner.image = "${grailsApplication.config.grails.fileURL}/banner/${mil}${ext}"
+        }
+
+        bannerService.save(banner)
+
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.updated.message', args: [message(code: 'Banner.label', default: 'Banner'), banner.id])
+                redirect banner
+            }
+            '*'{ respond banner, [status: OK] }
+        }
+    }
+
+    @Transactional
+    def updateChecked(Banner banner) {
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        if (banner.hasErrors()) {
+            respond banner.errors, view:'edit'
+            return
+        }
+
+        MultipartFile imageFile = request.getFile("imageFile")
+
+        if(imageFile && !imageFile.empty) {
+            def stored = fileService.replaceBannerImage(imageFile)
+
+            if(stored) {
+                banner.image = "${grailsApplication.config.grails.fileURL}/banner/${stored}"
+            }
+        }
+
+        bannerService.save(banner)
+
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.updated.message', args: [message(code: 'Banner.label', default: 'Banner'), banner.id])
+                redirect banner
+            }
+            '*'{ respond banner, [status: OK] }
+        }
+    }
+
+    @Transactional
+    def delete(Banner banner) {
+
+        if (banner == null) {
+            notFound()
+            return
+        }
+
+        bannerService.delete(banner)
+
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.deleted.message', args: [message(code: 'Banner.label', default: 'Banner'), banner.id])
+                redirect action:"index", method:"GET"
+            }
+            '*'{ render status: NO_CONTENT }
+        }
+    }
+
+    def export(Banner banner) {
+
+        def results = BannerClick.createCriteria().list {
+            projections {
+                groupProperty('dateString')
+                count('clickCount')
+                sum('clickCount')
+            }
+            eq('banner', banner)
+            order('dateString', 'desc')
+        }
+
+        String text = "일자,클릭회원수,전체클릭수\n"
+
+        results.each { e ->
+            text += e.join(',') +'\n'
+        }
+
+        response.contentType = "text/csv"
+        response.setHeader("Content-disposition", String.format("attachment; filename=banner_%s_%s.csv", banner.name, new Date().format("yyyy-MM-dd")))
+
+        render (text: text, encoding: "EUC-KR")
+    }
+
+    protected void notFound() {
+        request.withFormat {
+            form multipartForm {
+                flash.message = message(code: 'default.not.found.message', args: [message(code: 'banner.label', default: 'Banner'), params.id])
+                redirect action: "index", method: "GET"
+            }
+            '*'{ render status: NOT_FOUND }
+        }
+    }
+
+    def fragment() {
+        List<String> variants = (params.variants as String ?: 'main').split(',').toList()
+        render(text: bannerService.getSlotFragments(variants) ?: '', contentType: 'text/plain')
+    }
+
+    def fragmentChecked() {
+        List<String> variants = (params.variants as String ?: 'main').split(',').toList()
+        try {
+            render(text: bannerService.getSlotFragmentsChecked(variants) ?: '', contentType: 'text/plain')
+        } catch (IllegalArgumentException e) {
+            render(status: 400, text: 'invalid banner slot')
+        }
+    }
+}

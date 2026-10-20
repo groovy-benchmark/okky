@@ -1,0 +1,22 @@
+*.class
+
+# Package Files #
+*.war
+*.ear
+
+.idea
+/target
+/mem
+*.iml
+*.log
+Config.groovy
+*.db
+
+.classpath
+.project
+.settings
+target-eclipse
+.slcache
+.asscache
+
+DataSource.groovy
